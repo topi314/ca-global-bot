@@ -1,0 +1,30 @@
+services:
+  ca-global-bot:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.toml:/var/lib/config.toml
+    networks:
+      - db
+    depends_on:
+      - db
+  db:
+    image: postgres:17
+    environment:
+      - POSTGRES_USER=ca-global-bot
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=ca-global-bot
+      - PGDATA=/data/postgres
+    volumes:
+      - db:/data/postgres
+    ports:
+      - "5432:5432"
+    networks:
+      - db
+
+networks:
+  db:
+
+volumes:
+  db:
