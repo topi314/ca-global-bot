@@ -3,7 +3,6 @@ name: Bot
 on:
   push:
     paths-ignore:
-      - '.github/**'
       - 'README.md'
       - 'LICENSE'
 
@@ -51,3 +50,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    needs:
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy
+        if: ${{ env.TOKEN != '' }}
+        env:
+          TOKEN: ${{ secrets.TOKEN }}
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: "https://watchtower.topi.wtf/v1/update?image=ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}"
+          method: "POST"
+          timeout: 60000
+          customHeaders: '{"Authorization": "Bearer ${{ env.TOKEN }}"}'

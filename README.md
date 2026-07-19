@@ -33,11 +33,11 @@ Local stack with the bot:
 docker compose up -d --build
 ```
 
-Join URL (behind your reverse proxy): `https://discord.campfire-tools.de/join`
+Join URL (behind your reverse proxy): `https://discord.cmpf-tools.de`
 
 ## Discord Developer Portal
 
-- Redirect URI: `https://discord.campfire-tools.de/join/callback`
+- Redirect URI: `https://discord.cmpf-tools.de/callback`
 - Privileged intent: **Server Members Intent**
 - Bot in the Global guild with Kick Members + Manage Roles (bot role above region roles)
 - OAuth2 scopes: identify, guilds, guilds.join
