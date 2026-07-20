@@ -14,6 +14,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/disgo/oauth2"
 	"github.com/disgoorg/snowflake/v2"
 
@@ -45,6 +46,9 @@ func New(cfg Config) (*Server, error) {
 		recheckStop: make(chan struct{}),
 	}
 
+	r := handler.New()
+	s.registerNicknameHandlers(r)
+
 	client, err := disgo.New(cfg.Bot.Token,
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(
@@ -52,6 +56,7 @@ func New(cfg Config) (*Server, error) {
 				gateway.IntentGuildMembers,
 			),
 		),
+		bot.WithEventListeners(r),
 		bot.WithEventListenerFunc(s.onGuildMemberLeave),
 	)
 	if err != nil {
@@ -59,6 +64,14 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to create discord client: %w", err)
 	}
 	s.Client = client
+
+	if cfg.Bot.GuildID != 0 {
+		if err = handler.SyncCommands(client, nicknameCommands(), []snowflake.ID{cfg.Bot.GuildID}); err != nil {
+			db.Close()
+			client.Close(context.Background())
+			return nil, fmt.Errorf("failed to sync guild commands: %w", err)
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.handleJoin)

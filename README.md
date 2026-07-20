@@ -8,6 +8,9 @@ Discord bot that gates entry to the CA Global server via OAuth2. Members must be
 - Adds eligible users to the Global guild and assigns region roles
 - Daily membership recheck with reauth grace + DM
 - Join / leave / kick / reauth logging to a Discord channel (Components V2)
+- Nickname format helpers:
+  - `/set-nickname` — opens a modal to set nick as `TrainerName Flag Community`
+  - `/post-nickname-panel` — (Manage Server) posts a channel message with a button that opens the same modal
 
 ## Development
 
@@ -39,7 +42,7 @@ Join URL (behind your reverse proxy): `https://discord.cmpf-tools.de`
 
 - Redirect URI: `https://discord.cmpf-tools.de/callback`
 - Privileged intent: **Server Members Intent**
-- Bot in the Global guild with Kick Members + Manage Roles (bot role above region roles)
+- Bot in the Global guild with Kick Members + Manage Roles + Manage Nicknames (bot role above region roles and members whose nicks it should change)
 - OAuth2 scopes: identify, guilds, guilds.join
 
 ## License
