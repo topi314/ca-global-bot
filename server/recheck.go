@@ -29,12 +29,18 @@ func (s *Server) runRecheckLoop() {
 	}
 }
 
+// durationUntilNextRecheck returns the time until the next recheck, anchored to
+// 00:00 UTC rather than boot time. With a 24h interval this fires at midnight,
+// with e.g. 6h at 00:00/06:00/12:00/18:00 UTC.
 func (s *Server) durationUntilNextRecheck() time.Duration {
+	interval := int64(s.Cfg.Recheck.Interval.Duration())
+
 	now := time.Now().UTC()
-	next := time.Date(now.Year(), now.Month(), now.Day(), s.Cfg.Recheck.Hour, s.Cfg.Recheck.Minute, 0, 0, time.UTC)
-	if !next.After(now) {
-		next = next.Add(24 * time.Hour)
-	}
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	elapsed := int64(now.Sub(midnight))
+
+	steps := elapsed/interval + 1
+	next := midnight.Add(time.Duration(steps * interval))
 	return next.Sub(now)
 }
 
@@ -115,7 +121,7 @@ func (s *Server) recheckMember(ctx context.Context, row sqlc.OauthToken, now tim
 	}
 
 	roles := s.regionRoles(matched)
-	if err = s.syncRegionRoles(ctx, userID, roles); err != nil {
+	if err = s.syncRegionRoles(userID, roles); err != nil {
 		return fmt.Errorf("sync roles: %w", err)
 	}
 
@@ -153,7 +159,7 @@ func (s *Server) handleTokenFailure(ctx context.Context, row sqlc.OauthToken, us
 	}
 
 	joinURL := s.Cfg.JoinURL()
-	dmErr := s.sendReauthDM(ctx, userID, joinURL, deadline)
+	dmErr := s.sendReauthDM(userID, joinURL, deadline)
 	if dmErr != nil {
 		slog.WarnContext(ctx, "failed to DM reauth prompt", slog.Any("err", dmErr), slog.String("user_id", userID.String()))
 	}
@@ -166,7 +172,7 @@ func (s *Server) handleTokenFailure(ctx context.Context, row sqlc.OauthToken, us
 	return nil
 }
 
-func (s *Server) sendReauthDM(ctx context.Context, userID snowflake.ID, joinURL string, deadline time.Time) error {
+func (s *Server) sendReauthDM(userID snowflake.ID, joinURL string, deadline time.Time) error {
 	channel, err := s.Client.Rest.CreateDMChannel(userID)
 	if err != nil {
 		return fmt.Errorf("create dm: %w", err)

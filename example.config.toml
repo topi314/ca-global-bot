@@ -25,8 +25,8 @@ client_id = 0
 client_secret = ""
 
 [recheck]
-hour = 4
-minute = 0
+# how often members are rechecked
+interval = "24h"
 reauth_grace = "72h"
 
 # CA source guild id -> region role id on United

@@ -1,10 +1,8 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"html"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -64,8 +62,7 @@ func (s *Server) handleJoinCallback(w http.ResponseWriter, r *http.Request) {
 
 	matched := s.matchedSourceGuilds(guilds)
 	if len(matched) == 0 {
-		writeHTML(w, http.StatusForbidden, "Not eligible",
-			"You don't appear to be a Community Ambassador. If you believe this is an error, please get in touch.")
+		writeHTML(w, http.StatusForbidden, "Not eligible", renderText("html_not_eligible"))
 		return
 	}
 
@@ -90,7 +87,7 @@ func (s *Server) handleJoinCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Already a member returns 204 with nil body from Discord; still sync region roles.
 	if member == nil {
-		if syncErr := s.syncRegionRoles(ctx, user.ID, roles); syncErr != nil {
+		if syncErr := s.syncRegionRoles(user.ID, roles); syncErr != nil {
 			slog.ErrorContext(ctx, "failed to sync region roles", slog.Any("err", syncErr), slog.String("user_id", user.ID.String()))
 			http.Error(w, "Failed to update your roles", http.StatusInternalServerError)
 			return
@@ -117,17 +114,15 @@ func (s *Server) handleJoinCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if isReauth {
 		s.logEvent(ctx, "reauth", user.User, "Member re-authorized OAuth", fields)
-		writeHTML(w, http.StatusOK, "Re-authorized",
-			"Your CA Global verification has been renewed. You can close this page.")
+		writeHTML(w, http.StatusOK, "Re-authorized", renderText("html_reauth"))
 		return
 	}
 
 	s.logEvent(ctx, "join", user.User, "Member joined via OAuth", fields)
-	writeHTML(w, http.StatusOK, "You're in",
-		"Welcome to CA Global. You have been added to the server with your region role(s). You can close this page.")
+	writeHTML(w, http.StatusOK, "You're in", renderText("html_joined"))
 }
 
-func (s *Server) syncRegionRoles(ctx context.Context, userID snowflake.ID, desiredRoles []snowflake.ID) error {
+func (s *Server) syncRegionRoles(userID snowflake.ID, desiredRoles []snowflake.ID) error {
 	member, err := s.Client.Rest.GetMember(s.Cfg.Bot.GuildID, userID)
 	if err != nil {
 		return fmt.Errorf("get member: %w", err)
@@ -161,21 +156,6 @@ func (s *Server) syncRegionRoles(ctx context.Context, userID snowflake.ID, desir
 		}
 	}
 	return nil
-}
-
-func writeHTML(w http.ResponseWriter, status int, title, body string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>%s</title>
-<style>
-body{font-family:system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem;line-height:1.5}
-h1{font-size:1.5rem}
-</style>
-</head>
-<body><h1>%s</h1><p>%s</p></body>
-</html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(body))
 }
 
 func snowflakesToInt64(ids []snowflake.ID) []int64 {

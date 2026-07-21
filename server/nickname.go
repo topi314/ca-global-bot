@@ -144,9 +144,7 @@ func (s *Server) handlePostNicknamePanel(_ discord.SlashCommandInteractionData, 
 
 	_, err := s.Client.Rest.CreateMessage(e.Channel().ID(), discord.NewMessageCreateV2(
 		discord.NewContainer(
-			discord.NewTextDisplay("## Set your nickname\n"+
-				"Use the button below to set your server nickname in the format:\n"+
-				"`TrainerName Flag Community`"),
+			discord.NewTextDisplay(renderText("nickname_panel")),
 			discord.NewActionRow(
 				discord.NewPrimaryButton("Set nickname", customIDNicknameOpen),
 			),
@@ -164,21 +162,10 @@ func (s *Server) handlePostNicknamePanel(_ discord.SlashCommandInteractionData, 
 }
 
 func (s *Server) handleNicknameOpenButton(_ discord.ButtonInteractionData, e *handler.ComponentEvent) error {
-	if err := s.requireConfiguredGuild(e.GuildID()); err != nil {
-		return e.CreateMessage(discord.NewMessageCreate().
-			WithContent(err.Error()).
-			WithEphemeral(true))
-	}
 	return e.Modal(nicknameModal())
 }
 
 func (s *Server) handleNicknameModalSubmit(e *handler.ModalEvent) error {
-	if err := s.requireConfiguredGuild(e.GuildID()); err != nil {
-		return e.CreateMessage(discord.NewMessageCreate().
-			WithContent(err.Error()).
-			WithEphemeral(true))
-	}
-
 	nick, err := formatNickname(
 		e.Data.Text(fieldTrainerName),
 		e.Data.Text(fieldFlag),
@@ -191,7 +178,7 @@ func (s *Server) handleNicknameModalSubmit(e *handler.ModalEvent) error {
 	}
 
 	user := e.User()
-	if err := s.applyNickname(*e.GuildID(), user.ID, nick); err != nil {
+	if err = s.applyNickname(s.Cfg.Bot.GuildID, user.ID, nick); err != nil {
 		return e.CreateMessage(discord.NewMessageCreate().
 			WithContent("Failed to set nickname: " + err.Error()).
 			WithEphemeral(true))

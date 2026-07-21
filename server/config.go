@@ -10,7 +10,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/disgoorg/snowflake/v2"
 
-	"github.com/topi314/ca-global-bot/server/auth"
 	"github.com/topi314/ca-global-bot/server/database"
 )
 
@@ -34,7 +33,34 @@ func LoadConfig(cfgPath string) (Config, error) {
 	}
 	cfg.whitelist = whitelist
 
+	if err = cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
+}
+
+// Validate checks that all required configuration is present.
+func (c Config) Validate() error {
+	if c.Bot.Token == "" {
+		return fmt.Errorf("bot.token is required")
+	}
+	if c.Bot.GuildID == 0 {
+		return fmt.Errorf("bot.guild_id is required")
+	}
+	if c.OAuth.ClientID == 0 {
+		return fmt.Errorf("oauth.client_id is required")
+	}
+	if c.OAuth.ClientSecret == "" {
+		return fmt.Errorf("oauth.client_secret is required")
+	}
+	if c.Server.PublicURL == "" {
+		return fmt.Errorf("server.public_url is required")
+	}
+	if c.Recheck.Interval <= 0 {
+		return fmt.Errorf("recheck.interval must be greater than 0")
+	}
+	return nil
 }
 
 func defaultConfig() Config {
@@ -56,8 +82,7 @@ func defaultConfig() Config {
 			SSLMode:  "disable",
 		},
 		Recheck: RecheckConfig{
-			Hour:        4,
-			Minute:      0,
+			Interval:    Duration(24 * time.Hour),
 			ReauthGrace: Duration(72 * time.Hour),
 		},
 		Whitelist: map[string]string{},
@@ -69,7 +94,7 @@ type Config struct {
 	Server    ServerConfig      `toml:"server"`
 	Database  database.Config   `toml:"database"`
 	Bot       BotConfig         `toml:"bot"`
-	OAuth     auth.Config       `toml:"oauth"`
+	OAuth     OAuthConfig       `toml:"oauth"`
 	Recheck   RecheckConfig     `toml:"recheck"`
 	Whitelist map[string]string `toml:"whitelist"`
 
@@ -159,16 +184,27 @@ func (c BotConfig) String() string {
 	)
 }
 
+type OAuthConfig struct {
+	ClientID     snowflake.ID `toml:"client_id"`
+	ClientSecret string       `toml:"client_secret"`
+}
+
+func (c OAuthConfig) String() string {
+	return fmt.Sprintf("\n ClientID: %s\n ClientSecret: %s",
+		c.ClientID,
+		strings.Repeat("*", len(c.ClientSecret)),
+	)
+}
+
 type RecheckConfig struct {
-	Hour        int      `toml:"hour"`
-	Minute      int      `toml:"minute"`
+	// Interval is how often members are rechecked.
+	Interval    Duration `toml:"interval"`
 	ReauthGrace Duration `toml:"reauth_grace"`
 }
 
 func (c RecheckConfig) String() string {
-	return fmt.Sprintf("\n Hour: %d\n Minute: %d\n ReauthGrace: %s",
-		c.Hour,
-		c.Minute,
+	return fmt.Sprintf("\n Interval: %s\n ReauthGrace: %s",
+		time.Duration(c.Interval),
 		time.Duration(c.ReauthGrace),
 	)
 }
@@ -177,6 +213,10 @@ func (c RecheckConfig) String() string {
 type Duration time.Duration
 
 func (d *Duration) UnmarshalText(text []byte) error {
+	if len(text) == 0 {
+		*d = 0
+		return nil
+	}
 	parsed, err := time.ParseDuration(string(text))
 	if err != nil {
 		return err

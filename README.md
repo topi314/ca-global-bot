@@ -6,7 +6,7 @@ Discord bot that gates entry to the CA Global server via OAuth2. Members must be
 
 - `GET /` — Discord OAuth (`identify`, `guilds`, `guilds.join`)
 - Adds eligible users to the Global guild and assigns region roles
-- Daily membership recheck with reauth grace + DM
+- Membership recheck on a configurable interval (default 24h) with reauth grace + DM
 - Join / leave / kick / reauth logging to a Discord channel (Components V2)
 - Nickname format helpers:
   - `/set-nickname` — opens a modal to set nick as `TrainerName Flag Community`

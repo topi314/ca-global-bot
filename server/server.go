@@ -57,6 +57,7 @@ func New(cfg Config) (*Server, error) {
 			),
 		),
 		bot.WithEventListeners(r),
+		bot.WithEventListenerFunc(s.onGuildMemberJoin),
 		bot.WithEventListenerFunc(s.onGuildMemberLeave),
 	)
 	if err != nil {
@@ -86,28 +87,22 @@ func New(cfg Config) (*Server, error) {
 }
 
 func (s *Server) Start() {
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		slog.Info("HTTP server listening", slog.String("addr", s.Cfg.Server.Addr))
 		if err := s.HTTPServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("HTTP server failed", slog.Any("err", err))
 		}
-	}()
+	})
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		if err := s.Client.OpenGateway(context.Background()); err != nil {
 			slog.Error("failed to open gateway", slog.Any("err", err))
 		}
-	}()
+	})
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		s.runRecheckLoop()
-	}()
+	})
 }
 
 func (s *Server) Stop() {
@@ -160,6 +155,40 @@ func (s *Server) allRegionRoleIDs() map[snowflake.ID]struct{} {
 		}
 	}
 	return roles
+}
+
+func (s *Server) onGuildMemberJoin(e *events.GuildMemberJoin) {
+	if e.GuildID != s.Cfg.Bot.GuildID {
+		return
+	}
+	if e.Member.User.Bot || e.Member.User.System {
+		return
+	}
+
+	ctx := context.Background()
+	if err := s.sendNicknameWelcomeDM(e.Member.User.ID); err != nil {
+		slog.WarnContext(ctx, "failed to send welcome DM", slog.Any("err", err), slog.String("user_id", e.Member.User.ID.String()))
+	}
+}
+
+func (s *Server) sendNicknameWelcomeDM(userID snowflake.ID) error {
+	channel, err := s.Client.Rest.CreateDMChannel(userID)
+	if err != nil {
+		return fmt.Errorf("create dm channel: %w", err)
+	}
+
+	_, err = s.Client.Rest.CreateMessage(channel.ID(), discord.NewMessageCreateV2(
+		discord.NewContainer(
+			discord.NewTextDisplay(renderText("welcome_dm")),
+			discord.NewActionRow(
+				discord.NewPrimaryButton("Set nickname", customIDNicknameOpen),
+			),
+		).WithAccentColor(0x5865F2),
+	))
+	if err != nil {
+		return fmt.Errorf("send dm: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) onGuildMemberLeave(e *events.GuildMemberLeave) {
