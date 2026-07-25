@@ -61,11 +61,12 @@ func nicknameModal() discord.ModalCreate {
 			WithMinLength(1).
 			WithMaxLength(8).
 			WithPlaceholder("e.g. 🇩🇪")).
-		AddLabel("Community", discord.NewShortTextInput(fieldCommunity).
+		AddComponents(discord.NewLabel("Community", discord.NewShortTextInput(fieldCommunity).
 			WithRequired(true).
 			WithMinLength(1).
 			WithMaxLength(32).
-			WithPlaceholder("Your community name"))
+			WithPlaceholder("Your community name")).
+			WithDescription("If the community name is too long, use only the city."))
 }
 
 func formatNickname(trainerName, flag, community string) (string, error) {
@@ -77,39 +78,12 @@ func formatNickname(trainerName, flag, community string) (string, error) {
 		return "", fmt.Errorf("trainer name, flag, and community are required")
 	}
 
-	// Budget for trainer + community after flag and the two separating spaces.
-	budget := nicknameMaxLength - utf8.RuneCountInString(flag) - 2
-	if budget < 2 {
-		return "", fmt.Errorf("flag is too long to fit trainer name and community (max %d characters)", nicknameMaxLength)
+	nick := trainerName + flag + community
+	if utf8.RuneCountInString(nick) > nicknameMaxLength {
+		return "", fmt.Errorf("nickname is too long (max %d characters). If your community name is long, use only the city", nicknameMaxLength)
 	}
 
-	trainerRunes := []rune(trainerName)
-	communityRunes := []rune(community)
-
-	if len(trainerRunes)+len(communityRunes) > budget {
-		// Shorten community first.
-		communityMax := budget - len(trainerRunes)
-		if communityMax < 1 {
-			// Shorten trainer too, keeping at least 1 character for community.
-			trainerMax := budget - 1
-			if trainerMax < 1 {
-				return "", fmt.Errorf("flag leaves no room for trainer name and community (max %d characters)", nicknameMaxLength)
-			}
-			trainerRunes = trainerRunes[:trainerMax]
-			communityMax = budget - len(trainerRunes)
-		}
-		if len(communityRunes) > communityMax {
-			communityRunes = communityRunes[:communityMax]
-		}
-	}
-
-	trainerName = strings.TrimSpace(string(trainerRunes))
-	community = strings.TrimSpace(string(communityRunes))
-	if trainerName == "" || community == "" {
-		return "", fmt.Errorf("nickname parts cannot fit within %d characters", nicknameMaxLength)
-	}
-
-	return trainerName + " " + flag + " " + community, nil
+	return nick, nil
 }
 
 func (s *Server) applyNickname(guildID, userID snowflake.ID, nick string) error {
