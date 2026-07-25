@@ -22,10 +22,15 @@ type pageData struct {
 	Body  string
 }
 
-// renderText renders a named static text template from messages.txt.tmpl.
-func renderText(name string) string {
+// renderText renders a named text template from messages.txt.tmpl.
+// Optional data is passed as the template context (use a map or struct).
+func renderText(name string, data ...any) string {
+	var d any
+	if len(data) > 0 {
+		d = data[0]
+	}
 	var b bytes.Buffer
-	if err := textTmpls.ExecuteTemplate(&b, name, nil); err != nil {
+	if err := textTmpls.ExecuteTemplate(&b, name, d); err != nil {
 		slog.Error("failed to render text template", slog.String("name", name), slog.Any("err", err))
 		return ""
 	}

@@ -209,11 +209,10 @@ func (s *Server) sendReauthDM(userID snowflake.ID, joinURL string, deadline time
 		return fmt.Errorf("create dm: %w", err)
 	}
 
-	content := fmt.Sprintf(
-		"Your CA Global verification needs to be renewed.\n\nPlease re-authorize here before %s, or you will be removed from the server:\n%s",
-		discordTimestamp(deadline),
-		joinURL,
-	)
+	content := renderText("reauth_dm", map[string]any{
+		"Deadline": discordTimestamp(deadline),
+		"JoinURL":  joinURL,
+	})
 	_, err = s.Client.Rest.CreateMessage(channel.ID(), discord.MessageCreate{Content: content})
 	if err != nil {
 		return fmt.Errorf("send dm: %w", err)
@@ -256,20 +255,11 @@ func (s *Server) sendKickDM(userID snowflake.ID, reason, joinURL string) error {
 	var content string
 	switch reason {
 	case "reauth_deadline_expired":
-		content = fmt.Sprintf(
-			"You have been removed from CA Global because your verification was not renewed in time.\n\nYou can rejoin anytime by authorizing again here:\n%s",
-			joinURL,
-		)
+		content = renderText("kick_dm_reauth_expired", map[string]any{"JoinURL": joinURL})
 	case "lost_eligibility":
-		content = fmt.Sprintf(
-			"You have been removed from CA Global because you are no longer a member of a whitelisted CA regional Discord.\n\nOnce you are back in an eligible regional server, you can rejoin here:\n%s",
-			joinURL,
-		)
+		content = renderText("kick_dm_lost_eligibility", map[string]any{"JoinURL": joinURL})
 	default:
-		content = fmt.Sprintf(
-			"You have been removed from CA Global.\n\nIf you believe this was a mistake, you can try rejoining here:\n%s",
-			joinURL,
-		)
+		content = renderText("kick_dm_default", map[string]any{"JoinURL": joinURL})
 	}
 
 	_, err = s.Client.Rest.CreateMessage(channel.ID(), discord.MessageCreate{Content: content})

@@ -32,11 +32,11 @@ func (s *Server) handleRecheckCommand(_ discord.SlashCommandInteractionData, e *
 
 	if !s.tryStartRecheck() {
 		return e.CreateMessage(discord.NewMessageCreate().
-			WithContent("A membership recheck is already in progress.").
+			WithContent(renderText("recheck_already_running")).
 			WithEphemeral(true))
 	}
 
 	return e.CreateMessage(discord.NewMessageCreate().
-		WithContent("Membership recheck started.").
+		WithContent(renderText("recheck_started")).
 		WithEphemeral(true))
 }

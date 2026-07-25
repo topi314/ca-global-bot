@@ -66,7 +66,7 @@ func nicknameModal() discord.ModalCreate {
 			WithMinLength(1).
 			WithMaxLength(32).
 			WithPlaceholder("Your community name")).
-			WithDescription("If the community name is too long, use only the city."))
+			WithDescription(renderText("nickname_community_hint")))
 }
 
 func formatNickname(trainerName, flag, community string) (string, error) {
@@ -75,12 +75,12 @@ func formatNickname(trainerName, flag, community string) (string, error) {
 	community = strings.TrimSpace(community)
 
 	if trainerName == "" || flag == "" || community == "" {
-		return "", fmt.Errorf("trainer name, flag, and community are required")
+		return "", fmt.Errorf("%s", renderText("nickname_required"))
 	}
 
 	nick := trainerName + flag + community
 	if utf8.RuneCountInString(nick) > nicknameMaxLength {
-		return "", fmt.Errorf("nickname is too long (max %d characters). If your community name is long, use only the city", nicknameMaxLength)
+		return "", fmt.Errorf("%s", renderText("nickname_too_long", map[string]any{"Max": nicknameMaxLength}))
 	}
 
 	return nick, nil
@@ -95,7 +95,7 @@ func (s *Server) applyNickname(guildID, userID snowflake.ID, nick string) error 
 
 func (s *Server) requireConfiguredGuild(guildID *snowflake.ID) error {
 	if guildID == nil || *guildID != s.Cfg.Bot.GuildID {
-		return fmt.Errorf("this command can only be used in the configured server")
+		return fmt.Errorf("%s", renderText("wrong_guild"))
 	}
 	return nil
 }
@@ -126,12 +126,12 @@ func (s *Server) handlePostNicknamePanel(_ discord.SlashCommandInteractionData, 
 	))
 	if err != nil {
 		return e.CreateMessage(discord.NewMessageCreate().
-			WithContent("Failed to post nickname panel: " + err.Error()).
+			WithContent(renderText("nickname_panel_failed", map[string]any{"Error": err.Error()})).
 			WithEphemeral(true))
 	}
 
 	return e.CreateMessage(discord.NewMessageCreate().
-		WithContent("Nickname panel posted.").
+		WithContent(renderText("nickname_panel_posted")).
 		WithEphemeral(true))
 }
 
@@ -154,11 +154,11 @@ func (s *Server) handleNicknameModalSubmit(e *handler.ModalEvent) error {
 	user := e.User()
 	if err = s.applyNickname(s.Cfg.Bot.GuildID, user.ID, nick); err != nil {
 		return e.CreateMessage(discord.NewMessageCreate().
-			WithContent("Failed to set nickname: " + err.Error()).
+			WithContent(renderText("nickname_set_failed", map[string]any{"Error": err.Error()})).
 			WithEphemeral(true))
 	}
 
 	return e.CreateMessage(discord.NewMessageCreate().
-		WithContent(fmt.Sprintf("Your nickname is now **%s**.", nick)).
+		WithContent(renderText("nickname_set", map[string]any{"Nick": nick})).
 		WithEphemeral(true))
 }

@@ -11,6 +11,74 @@ Use the button below to set your server nickname in the format:
 `TrainerNameFlagCommunity`
 {{- end}}
 
+{{define "nickname_required" -}}
+Trainer name, flag, and community are required.
+{{- end}}
+
+{{define "nickname_too_long" -}}
+Nickname is too long (max {{.Max}} characters). If your community name is long, use only the city.
+{{- end}}
+
+{{define "nickname_set" -}}
+Your nickname is now **{{.Nick}}**.
+{{- end}}
+
+{{define "nickname_set_failed" -}}
+Failed to set nickname: {{.Error}}
+{{- end}}
+
+{{define "nickname_panel_posted" -}}
+Nickname panel posted.
+{{- end}}
+
+{{define "nickname_panel_failed" -}}
+Failed to post nickname panel: {{.Error}}
+{{- end}}
+
+{{define "nickname_community_hint" -}}
+If the community name is too long, use only the city.
+{{- end}}
+
+{{define "wrong_guild" -}}
+This command can only be used in the configured server.
+{{- end}}
+
+{{define "recheck_already_running" -}}
+A membership recheck is already in progress.
+{{- end}}
+
+{{define "recheck_started" -}}
+Membership recheck started.
+{{- end}}
+
+{{define "reauth_dm" -}}
+Your CA Global verification needs to be renewed.
+
+Please re-authorize here before {{.Deadline}}, or you will be removed from the server:
+{{.JoinURL}}
+{{- end}}
+
+{{define "kick_dm_reauth_expired" -}}
+You have been removed from CA Global because your verification was not renewed in time.
+
+You can rejoin anytime by authorizing again here:
+{{.JoinURL}}
+{{- end}}
+
+{{define "kick_dm_lost_eligibility" -}}
+You have been removed from CA Global because you are no longer a member of a whitelisted CA regional Discord.
+
+Once you are back in an eligible regional server, you can rejoin here:
+{{.JoinURL}}
+{{- end}}
+
+{{define "kick_dm_default" -}}
+You have been removed from CA Global.
+
+If you believe this was a mistake, you can try rejoining here:
+{{.JoinURL}}
+{{- end}}
+
 {{define "html_not_eligible" -}}
 You don't appear to be a Community Ambassador. If you believe this is an error, please get in touch.
 {{- end}}
