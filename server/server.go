@@ -28,6 +28,7 @@ type Server struct {
 	OAuth       *oauth2.Client
 	HTTPServer  *http.Server
 	recheckStop chan struct{}
+	recheckMu   sync.Mutex
 	wg          sync.WaitGroup
 }
 
@@ -48,6 +49,7 @@ func New(cfg Config) (*Server, error) {
 
 	r := handler.New()
 	s.registerNicknameHandlers(r)
+	s.registerRecheckHandlers(r)
 
 	client, err := disgo.New(cfg.Bot.Token,
 		bot.WithGatewayConfigOpts(
@@ -67,7 +69,8 @@ func New(cfg Config) (*Server, error) {
 	s.Client = client
 
 	if cfg.Bot.GuildID != 0 {
-		if err = handler.SyncCommands(client, nicknameCommands(), []snowflake.ID{cfg.Bot.GuildID}); err != nil {
+		commands := append(nicknameCommands(), recheckCommands()...)
+		if err = handler.SyncCommands(client, commands, []snowflake.ID{cfg.Bot.GuildID}); err != nil {
 			db.Close()
 			client.Close(context.Background())
 			return nil, fmt.Errorf("failed to sync guild commands: %w", err)

@@ -11,6 +11,7 @@ Discord bot that gates entry to the CA Global server via OAuth2. Members must be
 - Nickname format helpers:
   - `/set-nickname` — opens a modal to set nick as `TrainerName Flag Community`
   - `/post-nickname-panel` — (Manage Server) posts a channel message with a button that opens the same modal
+- `/recheck` — (Manage Server) manually trigger the membership recheck job
 
 ## Development
 

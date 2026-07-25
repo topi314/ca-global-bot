@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -45,6 +48,25 @@ func (s *Server) durationUntilNextRecheck() time.Duration {
 }
 
 func (s *Server) runRecheck() {
+	s.recheckMu.Lock()
+	defer s.recheckMu.Unlock()
+	s.doRecheck()
+}
+
+// tryStartRecheck starts a membership recheck in a new goroutine if none is
+// already running. Returns false when a recheck is already in progress.
+func (s *Server) tryStartRecheck() bool {
+	if !s.recheckMu.TryLock() {
+		return false
+	}
+	go func() {
+		defer s.recheckMu.Unlock()
+		s.doRecheck()
+	}()
+	return true
+}
+
+func (s *Server) doRecheck() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
@@ -144,6 +166,11 @@ func (s *Server) handleTokenFailure(ctx context.Context, row sqlc.OauthToken, us
 		slog.Any("err", cause),
 		slog.String("user_id", userID.String()),
 	)
+
+	// Only handle unauthorized errors; other errors are likely transient and should be retried later.
+	if restCause, ok := errors.AsType[*rest.Error](cause); !ok || restCause.Response.StatusCode != http.StatusUnauthorized {
+		return nil
+	}
 
 	if row.ReauthDeadline.Valid {
 		// Already in grace; wait for deadline.
