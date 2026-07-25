@@ -130,11 +130,7 @@ func (s *Server) recheckMember(ctx context.Context, row sqlc.OauthToken, now tim
 
 	guilds, err := s.OAuth.GetGuilds(session)
 	if err != nil {
-		// Treat guild fetch failure similarly to token issues if unauthorized.
-		if session.Expired() {
-			return s.handleTokenFailure(ctx, row, user, err)
-		}
-		return fmt.Errorf("get guilds: %w", err)
+		return s.handleTokenFailure(ctx, row, user, err)
 	}
 
 	matched := s.matchedSourceGuilds(guilds)
@@ -167,8 +163,16 @@ func (s *Server) handleTokenFailure(ctx context.Context, row sqlc.OauthToken, us
 		slog.String("user_id", userID.String()),
 	)
 
-	// Only handle unauthorized errors; other errors are likely transient and should be retried later.
-	if restCause, ok := errors.AsType[*rest.Error](cause); !ok || restCause.Response.StatusCode != http.StatusUnauthorized {
+	// Only handle unauthorized / bad request (e.g. invalid_grant); other errors
+	// are likely transient and should be retried later.
+	restCause, ok := errors.AsType[*rest.Error](cause)
+	if !ok || restCause.Response == nil {
+		return nil
+	}
+	switch restCause.Response.StatusCode {
+	case http.StatusUnauthorized, http.StatusBadRequest:
+		// continue — permanent auth failure
+	default:
 		return nil
 	}
 
@@ -192,7 +196,7 @@ func (s *Server) handleTokenFailure(ctx context.Context, row sqlc.OauthToken, us
 	}
 
 	s.logEvent(ctx, "reauth_requested", user, "OAuth token invalid — reauth requested", map[string]string{
-		"deadline": deadline.Format(time.RFC3339),
+		"deadline": discordTimestamp(deadline),
 		"dm_ok":    fmt.Sprintf("%t", dmErr == nil),
 		"join_url": joinURL,
 	})
@@ -206,8 +210,8 @@ func (s *Server) sendReauthDM(userID snowflake.ID, joinURL string, deadline time
 	}
 
 	content := fmt.Sprintf(
-		"Your CA Global verification needs to be renewed.\n\nPlease re-authorize here before **%s** (UTC), or you will be removed from the server:\n%s",
-		deadline.UTC().Format(time.RFC1123),
+		"Your CA Global verification needs to be renewed.\n\nPlease re-authorize here before %s, or you will be removed from the server:\n%s",
+		discordTimestamp(deadline),
 		joinURL,
 	)
 	_, err = s.Client.Rest.CreateMessage(channel.ID(), discord.MessageCreate{Content: content})
@@ -217,13 +221,60 @@ func (s *Server) sendReauthDM(userID snowflake.ID, joinURL string, deadline time
 	return nil
 }
 
+// discordTimestamp formats t as a Discord timestamp (absolute + relative).
+func discordTimestamp(t time.Time) string {
+	unix := t.Unix()
+	return fmt.Sprintf("<t:%d:f> (<t:%d:R>)", unix, unix)
+}
+
 func (s *Server) kickMember(ctx context.Context, userID snowflake.ID, user discord.User, reason, description string) error {
+	joinURL := s.Cfg.JoinURL()
+	dmErr := s.sendKickDM(userID, reason, joinURL)
+	if dmErr != nil {
+		slog.WarnContext(ctx, "failed to DM kick notice", slog.Any("err", dmErr), slog.String("user_id", userID.String()))
+	}
+
 	if err := s.Client.Rest.RemoveMember(s.Cfg.Bot.GuildID, userID); err != nil {
 		return fmt.Errorf("kick member: %w", err)
 	}
 	if err := s.DB.Queries.DeleteOAuthToken(ctx, int64(userID)); err != nil {
 		slog.ErrorContext(ctx, "failed to delete oauth token after kick", slog.Any("err", err))
 	}
-	s.logEvent(ctx, "kick", user, description, map[string]string{"reason": reason})
+	s.logEvent(ctx, "kick", user, description, map[string]string{
+		"reason": reason,
+		"dm_ok":  fmt.Sprintf("%t", dmErr == nil),
+	})
+	return nil
+}
+
+func (s *Server) sendKickDM(userID snowflake.ID, reason, joinURL string) error {
+	channel, err := s.Client.Rest.CreateDMChannel(userID)
+	if err != nil {
+		return fmt.Errorf("create dm: %w", err)
+	}
+
+	var content string
+	switch reason {
+	case "reauth_deadline_expired":
+		content = fmt.Sprintf(
+			"You have been removed from CA Global because your verification was not renewed in time.\n\nYou can rejoin anytime by authorizing again here:\n%s",
+			joinURL,
+		)
+	case "lost_eligibility":
+		content = fmt.Sprintf(
+			"You have been removed from CA Global because you are no longer a member of a whitelisted CA regional Discord.\n\nOnce you are back in an eligible regional server, you can rejoin here:\n%s",
+			joinURL,
+		)
+	default:
+		content = fmt.Sprintf(
+			"You have been removed from CA Global.\n\nIf you believe this was a mistake, you can try rejoining here:\n%s",
+			joinURL,
+		)
+	}
+
+	_, err = s.Client.Rest.CreateMessage(channel.ID(), discord.MessageCreate{Content: content})
+	if err != nil {
+		return fmt.Errorf("send dm: %w", err)
+	}
 	return nil
 }
