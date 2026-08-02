@@ -1,18 +1,23 @@
 {{define "welcome_dm" -}}
 ## Welcome to CA Global! 👋
-To help everyone recognize you, please set your server nickname. It uses the format `TrainerNameFlagCommunity`, for example `Ash🇩🇪Kanto CA`.
+To help everyone recognize you, please set your server nickname. It uses the format `TrainerName Flag Community`, for example `Ash 🇩🇪 Kanto CA` (enter `DE` as the country code).
 
-Tap the button below to set it now, a short form will pop up where you can enter your trainer name, country flag, and community. You can change it any time with the `/set-nickname` command in the server.
+Tap the button below to set it now, a short form will pop up where you can enter your trainer name, 2-letter country code (ISO alpha-2), and community. You can change it any time with the `/set-nickname` command in the server.
 {{- end}}
 
 {{define "nickname_panel" -}}
 ## Set your nickname
 Use the button below to set your server nickname in the format:
-`TrainerNameFlagCommunity`
+`TrainerName Flag Community`
+Enter a 2-letter country code (ISO alpha-2), for example `DE` for 🇩🇪.
 {{- end}}
 
 {{define "nickname_required" -}}
-Trainer name, flag, and community are required.
+Trainer name, country code, and community are required.
+{{- end}}
+
+{{define "nickname_invalid_country" -}}
+Unknown country code. Use a valid 2-letter ISO code (e.g. DE, US, JP).
 {{- end}}
 
 {{define "nickname_too_long" -}}

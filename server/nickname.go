@@ -9,6 +9,7 @@ import (
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/omit"
 	"github.com/disgoorg/snowflake/v2"
+	"golang.org/x/text/language"
 )
 
 const (
@@ -26,7 +27,7 @@ func nicknameCommands() []discord.ApplicationCommandCreate {
 	return []discord.ApplicationCommandCreate{
 		discord.SlashCommandCreate{
 			Name:        "set-nickname",
-			Description: "Set your server nickname (trainer name, flag, community)",
+			Description: "Set your server nickname (trainer name, country code, community)",
 			Contexts: []discord.InteractionContextType{
 				discord.InteractionContextTypeGuild,
 			},
@@ -56,11 +57,11 @@ func nicknameModal() discord.ModalCreate {
 			WithMinLength(1).
 			WithMaxLength(32).
 			WithPlaceholder("Your in-game trainer name")).
-		AddLabel("Flag", discord.NewShortTextInput(fieldFlag).
+		AddLabel("Country code", discord.NewShortTextInput(fieldFlag).
 			WithRequired(true).
-			WithMinLength(1).
-			WithMaxLength(8).
-			WithPlaceholder("e.g. 🇩🇪")).
+			WithMinLength(2).
+			WithMaxLength(3).
+			WithPlaceholder("e.g. DE")).
 		AddComponents(discord.NewLabel("Community", discord.NewShortTextInput(fieldCommunity).
 			WithRequired(true).
 			WithMinLength(1).
@@ -69,16 +70,48 @@ func nicknameModal() discord.ModalCreate {
 			WithDescription(renderText("nickname_community_hint")))
 }
 
-func formatNickname(trainerName, flag, community string) (string, error) {
+// countryCodeToFlag turns a real ISO 3166-1 alpha-2/alpha-3 country code into
+// a flag emoji (regional indicator symbols), e.g. "DE"/"DEU" -> 🇩🇪. Deprecated
+// aliases are canonicalized (e.g. "UK" -> "GB").
+func countryCodeToFlag(code string) (string, error) {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if len(code) != 2 && len(code) != 3 {
+		return "", fmt.Errorf("%s", renderText("nickname_invalid_country"))
+	}
+
+	region, err := language.ParseRegion(code)
+	if err != nil || !region.IsCountry() {
+		return "", fmt.Errorf("%s", renderText("nickname_invalid_country"))
+	}
+
+	// Always emit the alpha-2 regional-indicator flag.
+	code = region.Canonicalize().String()
+	if len(code) != 2 {
+		return "", fmt.Errorf("%s", renderText("nickname_invalid_country"))
+	}
+	r0, r1 := rune(code[0]), rune(code[1])
+	if r0 < 'A' || r0 > 'Z' || r1 < 'A' || r1 > 'Z' {
+		return "", fmt.Errorf("%s", renderText("nickname_invalid_country"))
+	}
+
+	const regionalIndicatorA = 0x1F1E6
+	return string([]rune{regionalIndicatorA + (r0 - 'A'), regionalIndicatorA + (r1 - 'A')}), nil
+}
+
+func formatNickname(trainerName, countryCode, community string) (string, error) {
 	trainerName = strings.TrimSpace(trainerName)
-	flag = strings.TrimSpace(flag)
 	community = strings.TrimSpace(community)
 
-	if trainerName == "" || flag == "" || community == "" {
+	if trainerName == "" || strings.TrimSpace(countryCode) == "" || community == "" {
 		return "", fmt.Errorf("%s", renderText("nickname_required"))
 	}
 
-	nick := trainerName + flag + community
+	flag, err := countryCodeToFlag(countryCode)
+	if err != nil {
+		return "", err
+	}
+
+	nick := trainerName + " " + flag + " " + community
 	if utf8.RuneCountInString(nick) > nicknameMaxLength {
 		return "", fmt.Errorf("%s", renderText("nickname_too_long", map[string]any{"Max": nicknameMaxLength}))
 	}
