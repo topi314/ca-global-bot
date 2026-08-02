@@ -48,6 +48,9 @@ func (c Config) Validate() error {
 	if c.Bot.GuildID == 0 {
 		return fmt.Errorf("bot.guild_id is required")
 	}
+	if c.Bot.InviteChannelID == 0 {
+		return fmt.Errorf("bot.invite_channel_id is required")
+	}
 	if c.OAuth.ClientID == 0 {
 		return fmt.Errorf("oauth.client_id is required")
 	}
@@ -171,15 +174,17 @@ func (c ServerConfig) String() string {
 }
 
 type BotConfig struct {
-	Token        string       `toml:"token"`
-	GuildID      snowflake.ID `toml:"guild_id"`
-	LogChannelID snowflake.ID `toml:"log_channel_id"`
+	Token           string       `toml:"token"`
+	GuildID         snowflake.ID `toml:"guild_id"`
+	InviteChannelID snowflake.ID `toml:"invite_channel_id"`
+	LogChannelID    snowflake.ID `toml:"log_channel_id"`
 }
 
 func (c BotConfig) String() string {
-	return fmt.Sprintf("\n Token: %s\n GuildID: %s\n LogChannelID: %s",
+	return fmt.Sprintf("\n Token: %s\n GuildID: %s\n InviteChannelID: %s\n LogChannelID: %s",
 		strings.Repeat("*", len(c.Token)),
 		c.GuildID,
+		c.InviteChannelID,
 		c.LogChannelID,
 	)
 }

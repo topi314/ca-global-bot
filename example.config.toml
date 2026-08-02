@@ -18,6 +18,7 @@ ssl_mode = "disable"
 [bot]
 token = ""
 guild_id = 0
+invite_channel_id = 0
 log_channel_id = 0
 
 [oauth]

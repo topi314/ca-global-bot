@@ -1,11 +1,11 @@
 # ca-global-bot
 
-Discord bot that gates entry to the CA Global server via OAuth2. Members must belong to a whitelisted CA regional Discord; region roles are assigned from that membership. A daily job re-checks guild membership using stored OAuth refresh tokens. If a token fails, the bot DMs a re-auth link and kicks after a grace period.
+Discord bot that gates entry to the CA Global server via OAuth2. Members must belong to a whitelisted CA regional Discord; eligible users get a single-use invite that assigns region roles. A daily job re-checks guild membership using stored OAuth refresh tokens. If a token fails, the bot DMs a re-auth link and kicks after a grace period.
 
 ## Features
 
-- `GET /` — Discord OAuth (`identify`, `guilds`, `guilds.join`)
-- Adds eligible users to the Global guild and assigns region roles
+- `GET /` — Discord OAuth (`identify`, `guilds`)
+- Creates a user-targeted invite with region roles for eligible users (or syncs roles if already a member)
 - Membership recheck on a configurable interval (default 24h) with reauth grace + DM
 - Join / leave / kick / reauth logging to a Discord channel (Components V2)
 - Nickname format helpers:
@@ -43,8 +43,9 @@ Join URL (behind your reverse proxy): `https://discord.cmpf-tools.de`
 
 - Redirect URI: `https://discord.cmpf-tools.de/callback`
 - Privileged intent: **Server Members Intent**
-- Bot in the Global guild with Kick Members + Manage Roles + Manage Nicknames (bot role above region roles and members whose nicks it should change)
-- OAuth2 scopes: identify, guilds, guilds.join
+- Bot in the Global guild with Create Instant Invite, Manage Guild (for invite `target_users_file`), Manage Roles, Kick Members, and Manage Nicknames (bot role above region roles and members whose nicks it should change)
+- OAuth2 scopes: identify, guilds
+- Configure `bot.invite_channel_id` to the channel used for `CreateInvite`
 
 ## License
 

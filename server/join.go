@@ -9,6 +9,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/oauth2"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -22,7 +23,6 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		Scopes: []discord.OAuth2Scope{
 			discord.OAuth2ScopeIdentify,
 			discord.OAuth2ScopeGuilds,
-			discord.OAuth2ScopeGuildsJoin,
 		},
 	})
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
@@ -75,51 +75,75 @@ func (s *Server) handleJoinCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	roles := s.regionRoles(matched)
-	member, err := s.Client.Rest.AddMember(s.Cfg.Bot.GuildID, user.ID, discord.MemberAdd{
-		AccessToken: session.AccessToken,
-		Roles:       roles,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to add member", slog.Any("err", err), slog.String("user_id", user.ID.String()))
-		http.Error(w, "Failed to add you to the server", http.StatusInternalServerError)
+	_, err = s.Client.Rest.GetMember(s.Cfg.Bot.GuildID, user.ID)
+	alreadyMember := err == nil
+	if err != nil && !rest.IsJSONErrorCode(err, rest.JSONErrorCodeUnknownMember) {
+		slog.ErrorContext(ctx, "failed to get member", slog.Any("err", err), slog.String("user_id", user.ID.String()))
+		http.Error(w, "Failed to check your membership", http.StatusInternalServerError)
 		return
-	}
-
-	// Already a member returns 204 with nil body from Discord; still sync region roles.
-	if member == nil {
-		if syncErr := s.syncRegionRoles(user.ID, roles); syncErr != nil {
-			slog.ErrorContext(ctx, "failed to sync region roles", slog.Any("err", syncErr), slog.String("user_id", user.ID.String()))
-			http.Error(w, "Failed to update your roles", http.StatusInternalServerError)
-			return
-		}
 	}
 
 	sourceIDs := snowflakesToInt64(matched)
 	expiresAt := pgtype.Timestamptz{Time: session.Expiration, Valid: true}
-	if _, err = s.DB.Queries.UpsertOAuthToken(ctx, sqlc.UpsertOAuthTokenParams{
+	tokenParams := sqlc.UpsertOAuthTokenParams{
 		UserID:         int64(user.ID),
 		AccessToken:    session.AccessToken,
 		RefreshToken:   session.RefreshToken,
 		ExpiresAt:      expiresAt,
 		SourceGuildIds: sourceIDs,
-	}); err != nil {
+	}
+	fields := map[string]string{
+		"sources": joinSnowflakes(matched),
+		"roles":   joinSnowflakes(roles),
+	}
+
+	if alreadyMember {
+		if syncErr := s.syncRegionRoles(user.ID, roles); syncErr != nil {
+			slog.ErrorContext(ctx, "failed to sync region roles", slog.Any("err", syncErr), slog.String("user_id", user.ID.String()))
+			http.Error(w, "Failed to update your roles", http.StatusInternalServerError)
+			return
+		}
+		if _, err = s.DB.Queries.UpsertOAuthToken(ctx, tokenParams); err != nil {
+			slog.ErrorContext(ctx, "failed to upsert oauth token", slog.Any("err", err), slog.String("user_id", user.ID.String()))
+			http.Error(w, "Failed to save your login", http.StatusInternalServerError)
+			return
+		}
+		if isReauth {
+			s.logEvent(ctx, "reauth", user.User, "Member re-authorized OAuth", fields)
+			writeHTML(w, http.StatusOK, "Re-authorized", renderText("html_reauth"))
+			return
+		}
+		s.logEvent(ctx, "join", user.User, "Member already in guild via OAuth", fields)
+		writeHTML(w, http.StatusOK, "You're in", renderText("html_joined"))
+		return
+	}
+
+	invite, err := s.Client.Rest.CreateInvite(s.Cfg.Bot.InviteChannelID, discord.InviteCreate{
+		MaxAge:        new(3600),
+		MaxUses:       new(1),
+		Unique:        true,
+		RoleIDs:       roles,
+		TargetUserIDs: []snowflake.ID{user.ID},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to create invite", slog.Any("err", err), slog.String("user_id", user.ID.String()))
+		http.Error(w, "Failed to create your invite", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err = s.DB.Queries.UpsertOAuthToken(ctx, tokenParams); err != nil {
 		slog.ErrorContext(ctx, "failed to upsert oauth token", slog.Any("err", err), slog.String("user_id", user.ID.String()))
 		http.Error(w, "Failed to save your login", http.StatusInternalServerError)
 		return
 	}
 
-	fields := map[string]string{
-		"sources": joinSnowflakes(matched),
-		"roles":   joinSnowflakes(roles),
-	}
+	fields["invite"] = invite.Code
 	if isReauth {
-		s.logEvent(ctx, "reauth", user.User, "Member re-authorized OAuth", fields)
-		writeHTML(w, http.StatusOK, "Re-authorized", renderText("html_reauth"))
-		return
+		s.logEvent(ctx, "reauth", user.User, "Member re-authorized OAuth (invite)", fields)
+	} else {
+		s.logEvent(ctx, "join", user.User, "Member invited via OAuth", fields)
 	}
-
-	s.logEvent(ctx, "join", user.User, "Member joined via OAuth", fields)
-	writeHTML(w, http.StatusOK, "You're in", renderText("html_joined"))
+	http.Redirect(w, r, invite.URL(), http.StatusTemporaryRedirect)
 }
 
 func (s *Server) syncRegionRoles(userID snowflake.ID, desiredRoles []snowflake.ID) error {
@@ -181,7 +205,6 @@ func sessionFromToken(row sqlc.OauthToken) oauth2.Session {
 		Scopes: []discord.OAuth2Scope{
 			discord.OAuth2ScopeIdentify,
 			discord.OAuth2ScopeGuilds,
-			discord.OAuth2ScopeGuildsJoin,
 		},
 		TokenType:  discord.TokenTypeBearer,
 		Expiration: row.ExpiresAt.Time,
