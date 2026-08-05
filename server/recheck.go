@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/oauth2"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -106,31 +107,16 @@ func (s *Server) recheckMember(ctx context.Context, row sqlc.OauthToken, now tim
 	}
 
 	session := sessionFromToken(row)
-	session, err := s.OAuth.VerifySession(session)
+	guilds, session, err := s.fetchGuilds(ctx, userID, session)
 	if err != nil {
-		return s.handleTokenFailure(ctx, row, user, err)
+		return s.startReauth(ctx, row, user, err)
 	}
 
-	// Persist refreshed tokens if they changed.
+	// Persist rotated tokens immediately so a later kick can't leave us with a dead refresh token.
 	if session.AccessToken != row.AccessToken || session.RefreshToken != row.RefreshToken {
-		if _, err = s.DB.Queries.UpdateTokensAndSources(ctx, sqlc.UpdateTokensAndSourcesParams{
-			UserID:         row.UserID,
-			AccessToken:    session.AccessToken,
-			RefreshToken:   session.RefreshToken,
-			ExpiresAt:      pgtype.Timestamptz{Time: session.Expiration, Valid: true},
-			SourceGuildIds: row.SourceGuildIds,
-		}); err != nil {
-			return fmt.Errorf("update refreshed tokens: %w", err)
+		if err = s.persistSession(ctx, row.UserID, session, row.SourceGuildIds); err != nil {
+			return err
 		}
-		row.AccessToken = session.AccessToken
-		row.RefreshToken = session.RefreshToken
-		row.ExpiresAt = pgtype.Timestamptz{Time: session.Expiration, Valid: true}
-		row.ReauthDeadline = pgtype.Timestamptz{}
-	}
-
-	guilds, err := s.OAuth.GetGuilds(session)
-	if err != nil {
-		return s.handleTokenFailure(ctx, row, user, err)
 	}
 
 	matched := s.matchedSourceGuilds(guilds)
@@ -156,28 +142,71 @@ func (s *Server) recheckMember(ctx context.Context, row sqlc.OauthToken, now tim
 	return nil
 }
 
-func (s *Server) handleTokenFailure(ctx context.Context, row sqlc.OauthToken, user discord.User, cause error) error {
+// fetchGuilds loads guilds for session. On 401 it refreshes once and retries.
+func (s *Server) fetchGuilds(ctx context.Context, userID snowflake.ID, session oauth2.Session) ([]discord.OAuth2Guild, oauth2.Session, error) {
+	guilds, err := s.getGuilds(session)
+	if err == nil {
+		return guilds, session, nil
+	}
+	if !isUnauthorized(err) {
+		return nil, session, err
+	}
+
+	slog.InfoContext(ctx, "oauth get guilds returned 401, attempting refresh",
+		slog.String("user_id", userID.String()),
+	)
+
+	session, err = s.OAuth.RefreshSession(session)
+	if err != nil {
+		slog.WarnContext(ctx, "oauth refresh failed",
+			slog.Any("err", err),
+			slog.String("user_id", userID.String()),
+		)
+		return nil, session, err
+	}
+
+	guilds, err = s.getGuilds(session)
+	if err != nil {
+		slog.WarnContext(ctx, "oauth refresh succeeded but get guilds still failed",
+			slog.Any("err", err),
+			slog.String("user_id", userID.String()),
+		)
+		return nil, session, err
+	}
+
+	slog.InfoContext(ctx, "oauth refresh recovered access",
+		slog.String("user_id", userID.String()),
+	)
+	return guilds, session, nil
+}
+
+// getGuilds hits Discord directly so expired access tokens surface as 401
+// instead of disgo's local ErrSessionExpired.
+func (s *Server) getGuilds(session oauth2.Session) ([]discord.OAuth2Guild, error) {
+	return s.OAuth.Rest.GetCurrentUserGuilds(session.AccessToken, 0, 0, 0, false)
+}
+
+func isUnauthorized(err error) bool {
+	return restStatus(err) == http.StatusUnauthorized
+}
+
+// startReauth begins the reauth grace period for permanent auth failures
+// (401/400). Transient errors are ignored so the next recheck can retry.
+func (s *Server) startReauth(ctx context.Context, row sqlc.OauthToken, user discord.User, cause error) error {
 	userID := snowflake.ID(row.UserID)
-	slog.WarnContext(ctx, "oauth token refresh failed",
+	slog.WarnContext(ctx, "oauth token invalid",
 		slog.Any("err", cause),
 		slog.String("user_id", userID.String()),
 	)
 
-	// Only handle unauthorized / bad request (e.g. invalid_grant); other errors
-	// are likely transient and should be retried later.
-	restCause, ok := errors.AsType[*rest.Error](cause)
-	if !ok || restCause.Response == nil {
-		return nil
-	}
-	switch restCause.Response.StatusCode {
+	switch restStatus(cause) {
 	case http.StatusUnauthorized, http.StatusBadRequest:
-		// continue — permanent auth failure
+		// permanent auth failure
 	default:
 		return nil
 	}
 
 	if row.ReauthDeadline.Valid {
-		// Already in grace; wait for deadline.
 		return nil
 	}
 
@@ -200,6 +229,27 @@ func (s *Server) handleTokenFailure(ctx context.Context, row sqlc.OauthToken, us
 		"dm_ok":    fmt.Sprintf("%t", dmErr == nil),
 		"join_url": joinURL,
 	})
+	return nil
+}
+
+func restStatus(err error) int {
+	restCause, ok := errors.AsType[*rest.Error](err)
+	if !ok || restCause.Response == nil {
+		return 0
+	}
+	return restCause.Response.StatusCode
+}
+
+func (s *Server) persistSession(ctx context.Context, userID int64, session oauth2.Session, sourceGuildIds []int64) error {
+	if _, err := s.DB.Queries.UpdateTokensAndSources(ctx, sqlc.UpdateTokensAndSourcesParams{
+		UserID:         userID,
+		AccessToken:    session.AccessToken,
+		RefreshToken:   session.RefreshToken,
+		ExpiresAt:      pgtype.Timestamptz{Time: session.Expiration, Valid: true},
+		SourceGuildIds: sourceGuildIds,
+	}); err != nil {
+		return fmt.Errorf("update refreshed tokens: %w", err)
+	}
 	return nil
 }
 
