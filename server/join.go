@@ -22,7 +22,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		RedirectURI: s.Cfg.RedirectURI(),
 		Scopes: []discord.OAuth2Scope{
 			discord.OAuth2ScopeIdentify,
-			discord.OAuth2ScopeGuilds,
+			discord.OAuth2ScopeGuildsMembersRead,
 		},
 	})
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
@@ -53,14 +53,12 @@ func (s *Server) handleJoinCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	guilds, err := s.OAuth.GetGuilds(session)
+	matched, err := s.matchedSourceGuilds(session.AccessToken)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to get oauth guilds", slog.Any("err", err))
-		http.Error(w, "Failed to get Discord guilds", http.StatusInternalServerError)
+		slog.ErrorContext(ctx, "failed to check source guild membership", slog.Any("err", err))
+		http.Error(w, "Failed to check Discord guild membership", http.StatusInternalServerError)
 		return
 	}
-
-	matched := s.matchedSourceGuilds(guilds)
 	if len(matched) == 0 {
 		writeHTML(w, http.StatusForbidden, "Not eligible", renderText("html_not_eligible"))
 		return
@@ -204,7 +202,7 @@ func sessionFromToken(row sqlc.OauthToken) oauth2.Session {
 		RefreshToken: row.RefreshToken,
 		Scopes: []discord.OAuth2Scope{
 			discord.OAuth2ScopeIdentify,
-			discord.OAuth2ScopeGuilds,
+			discord.OAuth2ScopeGuildsMembersRead,
 		},
 		TokenType:  discord.TokenTypeBearer,
 		Expiration: row.ExpiresAt.Time,

@@ -4,7 +4,7 @@ Discord bot that gates entry to the CA Global server via OAuth2. Members must be
 
 ## Features
 
-- `GET /` — Discord OAuth (`identify`, `guilds`)
+- `GET /` — Discord OAuth (`identify`, `guilds.members.read`)
 - Creates a user-targeted invite with region roles for eligible users (or syncs roles if already a member)
 - Membership recheck on a configurable interval (default 24h) with reauth grace + DM
 - Join / leave / kick / reauth logging to a Discord channel (Components V2)
@@ -44,7 +44,7 @@ Join URL (behind your reverse proxy): `https://discord.cmpf-tools.de`
 - Redirect URI: `https://discord.cmpf-tools.de/callback`
 - Privileged intent: **Server Members Intent**
 - Bot in the Global guild with Create Instant Invite, Manage Guild (for invite `target_users_file`), Manage Roles, Kick Members, and Manage Nicknames (bot role above region roles and members whose nicks it should change)
-- OAuth2 scopes: identify, guilds
+- OAuth2 scopes: identify, guilds.members.read
 - Configure `bot.invite_channel_id` to the channel used for `CreateInvite`
 
 ## License

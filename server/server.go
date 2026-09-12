@@ -16,6 +16,7 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/handler"
 	"github.com/disgoorg/disgo/oauth2"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/topi314/ca-global-bot/server/database"
@@ -123,14 +124,28 @@ func (s *Server) Stop() {
 	s.wg.Wait()
 }
 
-func (s *Server) matchedSourceGuilds(guilds []discord.OAuth2Guild) []snowflake.ID {
+// matchedSourceGuilds probes each whitelist guild via
+// GET /users/@me/guilds/{guild.id}/member (guilds.members.read).
+// 404 means the user is not in that guild; other errors are returned.
+func (s *Server) matchedSourceGuilds(accessToken string) ([]snowflake.ID, error) {
 	var matched []snowflake.ID
-	for _, g := range guilds {
-		if _, ok := s.Cfg.whitelist[g.ID]; ok {
-			matched = append(matched, g.ID)
+	for guildID := range s.Cfg.whitelist {
+		_, err := s.OAuth.Rest.GetCurrentMember(accessToken, guildID)
+		if err == nil {
+			matched = append(matched, guildID)
+			continue
 		}
+		if isNotGuildMember(err) {
+			continue
+		}
+		return nil, err
 	}
-	return matched
+	return matched, nil
+}
+
+func isNotGuildMember(err error) bool {
+	return restStatus(err) == http.StatusNotFound ||
+		rest.IsJSONErrorCode(err, rest.JSONErrorCodeUnknownMember)
 }
 
 func (s *Server) regionRoles(sourceGuildIDs []snowflake.ID) []snowflake.ID {

@@ -107,7 +107,7 @@ func (s *Server) recheckMember(ctx context.Context, row sqlc.OauthToken, now tim
 	}
 
 	session := sessionFromToken(row)
-	guilds, session, err := s.fetchGuilds(ctx, userID, session)
+	matched, session, err := s.fetchMatchedSourceGuilds(ctx, userID, session)
 	if err != nil {
 		return s.startReauth(ctx, row, user, err)
 	}
@@ -119,7 +119,6 @@ func (s *Server) recheckMember(ctx context.Context, row sqlc.OauthToken, now tim
 		}
 	}
 
-	matched := s.matchedSourceGuilds(guilds)
 	if len(matched) == 0 {
 		return s.kickMember(ctx, userID, user, "lost_eligibility", "No longer in a whitelisted CA server")
 	}
@@ -142,17 +141,18 @@ func (s *Server) recheckMember(ctx context.Context, row sqlc.OauthToken, now tim
 	return nil
 }
 
-// fetchGuilds loads guilds for session. On 401 it refreshes once and retries.
-func (s *Server) fetchGuilds(ctx context.Context, userID snowflake.ID, session oauth2.Session) ([]discord.OAuth2Guild, oauth2.Session, error) {
-	guilds, err := s.getGuilds(session)
+// fetchMatchedSourceGuilds probes whitelist guilds for session.
+// On 401 it refreshes once and retries.
+func (s *Server) fetchMatchedSourceGuilds(ctx context.Context, userID snowflake.ID, session oauth2.Session) ([]snowflake.ID, oauth2.Session, error) {
+	matched, err := s.matchedSourceGuilds(session.AccessToken)
 	if err == nil {
-		return guilds, session, nil
+		return matched, session, nil
 	}
 	if !isUnauthorized(err) {
 		return nil, session, err
 	}
 
-	slog.InfoContext(ctx, "oauth get guilds returned 401, attempting refresh",
+	slog.InfoContext(ctx, "oauth get current member returned 401, attempting refresh",
 		slog.String("user_id", userID.String()),
 	)
 
@@ -165,9 +165,9 @@ func (s *Server) fetchGuilds(ctx context.Context, userID snowflake.ID, session o
 		return nil, session, err
 	}
 
-	guilds, err = s.getGuilds(session)
+	matched, err = s.matchedSourceGuilds(session.AccessToken)
 	if err != nil {
-		slog.WarnContext(ctx, "oauth refresh succeeded but get guilds still failed",
+		slog.WarnContext(ctx, "oauth refresh succeeded but membership check still failed",
 			slog.Any("err", err),
 			slog.String("user_id", userID.String()),
 		)
@@ -177,13 +177,7 @@ func (s *Server) fetchGuilds(ctx context.Context, userID snowflake.ID, session o
 	slog.InfoContext(ctx, "oauth refresh recovered access",
 		slog.String("user_id", userID.String()),
 	)
-	return guilds, session, nil
-}
-
-// getGuilds hits Discord directly so expired access tokens surface as 401
-// instead of disgo's local ErrSessionExpired.
-func (s *Server) getGuilds(session oauth2.Session) ([]discord.OAuth2Guild, error) {
-	return s.OAuth.Rest.GetCurrentUserGuilds(session.AccessToken, 0, 0, 0, false)
+	return matched, session, nil
 }
 
 func isUnauthorized(err error) bool {
@@ -191,7 +185,7 @@ func isUnauthorized(err error) bool {
 }
 
 // startReauth begins the reauth grace period for permanent auth failures
-// (401/400). Transient errors are ignored so the next recheck can retry.
+// (401/403/400). Transient errors are ignored so the next recheck can retry.
 func (s *Server) startReauth(ctx context.Context, row sqlc.OauthToken, user discord.User, cause error) error {
 	userID := snowflake.ID(row.UserID)
 	slog.WarnContext(ctx, "oauth token invalid",
@@ -200,8 +194,8 @@ func (s *Server) startReauth(ctx context.Context, row sqlc.OauthToken, user disc
 	)
 
 	switch restStatus(cause) {
-	case http.StatusUnauthorized, http.StatusBadRequest:
-		// permanent auth failure
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest:
+		// permanent auth failure (403 covers missing/old scopes after migration)
 	default:
 		return nil
 	}
