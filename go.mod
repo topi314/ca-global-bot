@@ -4,11 +4,12 @@ go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/disgoorg/disgo v0.19.7-0.20260719203244-c09c86fe2aa0
+	github.com/disgoorg/disgo v0.19.7-0.20261106000522-04b75e60976d
 	github.com/disgoorg/omit v1.0.0
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/topi314/gomigrate v0.0.0-20250604001904-f3f6e21ecfc9
+	golang.org/x/text v0.40.0
 )
 
 require (
@@ -23,5 +24,4 @@ require (
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
 )
